@@ -187,8 +187,8 @@ from typing import Any, Dict, List, Optional, AsyncGenerator
 from dataclasses import dataclass
 
 import torch
-from LLM_Wizard.model_utils import apply_chat_template
-from LLM_Wizard.interfaces.base import BaseModelConfig, JohnLLMAsyncBase
+from Sagex.model_utils import apply_chat_template
+from Sagex.interfaces.base import BaseModelConfig, JohnLLMAsyncBase
 
 @dataclass
 class Exllamav2Resources:

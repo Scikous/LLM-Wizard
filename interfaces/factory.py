@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from LLM_Wizard.interfaces.base import BaseModelConfig, JohnLLMAsyncBase
+from Sagex.interfaces.base import BaseModelConfig, JohnLLMAsyncBase
 
 def create_llm_interface(
     backend: str,
@@ -35,10 +35,10 @@ def create_llm_interface(
     )
 
     if backend == "vllm":
-        from LLM_Wizard.interfaces.vllm_interface import JohnVLLMAsync
+        from Sagex.interfaces.vllm_interface import JohnVLLMAsync
         return JohnVLLMAsync.load_model(model_config)
     elif backend == "exllamav2":
-        from LLM_Wizard.interfaces.exllamav2_interface import JohnExllamav2
+        from Sagex.interfaces.exllamav2_interface import JohnExllamav2
         return JohnExllamav2.load_model(model_config)
     else:
         raise ValueError(f"Unknown LLM backend: {backend}")

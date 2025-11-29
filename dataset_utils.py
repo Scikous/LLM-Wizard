@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # MODEL_PATH = "unsloth/Meta-Llama-3.1-8B"
 # MODEL_PATH = 'LLM/Meta-Llama-3.1-8B/'
 
-MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"#"LLM_Wizard/CapybaraHermes-2.5-Mistral-7B-GPTQ"
+MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"#"Sagex/CapybaraHermes-2.5-Mistral-7B-GPTQ"
 try:
     TOKENIZER = AutoTokenizer.from_pretrained(MODEL_PATH)
 except:
@@ -29,10 +29,10 @@ except:
     sys.exit(1)
 
 # Define paths (consider making these configurable, e.g., via argparse)
-BASE_PATH = "LLM_Wizard/dataset/"
+BASE_PATH = "Sagex/dataset/"
 CSV_PATH = BASE_PATH + "John_Smith_Base.csv" # Your input CSV    
 # Load character details (globally or pass as needed)
-CHARACTER_JSON_PATH = 'LLM_Wizard/characters/character.json'
+CHARACTER_JSON_PATH = 'Sagex/characters/character.json'
 # Dummy character loading will be handled in main() if file doesn't exist
 INSTRUCTIONS, USER_NAME, CHARACTER_NAME = "", "", ""
 # --- NEW: Configuration for max conversation turns ---

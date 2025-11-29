@@ -18,7 +18,7 @@ class Info(BaseModel):
 
 from PIL import Image
 import json
-# images = [Image.open("LLM_Wizard/gaming/nier.webp")]#[Image.open("LLM_Wizard/gaming/nier.webp"), Image.open("LLM_Wizard/gaming/nier.webp")]
+# images = [Image.open("Sagex/gaming/nier.webp")]#[Image.open("Sagex/gaming/nier.webp"), Image.open("Sagex/gaming/nier.webp")]
 # # resp = l.dialogue_generator("Generate a new person:", generation_config=guided_json_config)
 
 #Paper Lily -- only a testing temp one

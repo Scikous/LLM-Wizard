@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     print("Starting up...")
     try:
         # Initialize the JohnExllamav2 model instance
-        character_info_json = "LLM_Wizard/characters/character.json"
+        character_info_json = "Sagex/characters/character.json"
         instructions, user_name, character_name = load_character(character_info_json)
 
         john_model = JohnExllamav2.load_model(

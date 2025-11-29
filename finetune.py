@@ -31,9 +31,9 @@ FINETUNING_MODE = "language"
 # 2️⃣ COMMON SETUP: Model ID, Dataset, and Paths
 # ======================================================================================
 MODEL_ID = "unsloth/Qwen2.5-VL-7B-Instruct-bnb-4bit"
-DATASET_PATH = "LLM_Wizard/dataset/final_templated_finetuning_data.parquet"
-OUTPUT_DIR = f"LLM_Wizard/qwen2.5-vl-finetune-{FINETUNING_MODE}"
-SAVE_DIR = f"LLM_Wizard/qwen2.5-vl-finetune-merged-{FINETUNING_MODE}"
+DATASET_PATH = "Sagex/dataset/final_templated_finetuning_data.parquet"
+OUTPUT_DIR = f"Sagex/qwen2.5-vl-finetune-{FINETUNING_MODE}"
+SAVE_DIR = f"Sagex/qwen2.5-vl-finetune-merged-{FINETUNING_MODE}"
 
 # Load the dataset once
 dataset = load_dataset("parquet", data_files={"train": DATASET_PATH})

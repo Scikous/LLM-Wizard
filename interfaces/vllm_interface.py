@@ -10,12 +10,12 @@ from vllm.v1.engine.async_llm import AsyncLLM
 
 from qwen_vl_utils import process_vision_info
 
-from LLM_Wizard.utils.special_chat_templates import get_special_template_for_model
+from Sagex.utils.special_chat_templates import get_special_template_for_model
 
 import torch
 from model_utils import apply_chat_template
 
-from LLM_Wizard.interfaces.base import BaseModelConfig, JohnLLMAsyncBase, JohnLLMBase
+from Sagex.interfaces.base import BaseModelConfig, JohnLLMAsyncBase, JohnLLMBase
 
 
 class _VLLMInterfaceMixin:

@@ -13,8 +13,8 @@
 # from model_utils import load_character
 
 # from PIL import Image
-# from LLM_Wizard.gaming.game_capture import GameCaptureWorker
-# from LLM_Wizard.gaming.controls import InputController
+# from Sagex.gaming.game_capture import GameCaptureWorker
+# from Sagex.gaming.controls import InputController
 
 # from interfaces.vllm_interface import JohnVLLM
 # from interfaces.base import BaseModelConfig
@@ -24,7 +24,7 @@
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # # Character and Model Configuration
-# character_info_json = "LLM_Wizard/characters/character.json"
+# character_info_json = "Sagex/characters/character.json"
 # instructions, user_name, character_name = load_character(character_info_json)
 
 # # --- AGENT STATE DEFINITION ---
@@ -656,8 +656,8 @@ from pynput.keyboard import Key, KeyCode
 from model_utils import load_character
 
 from PIL import Image
-from LLM_Wizard.gaming.game_capture import GameCaptureWorker
-from LLM_Wizard.gaming.controls import InputController
+from Sagex.gaming.game_capture import GameCaptureWorker
+from Sagex.gaming.controls import InputController
 
 from interfaces.vllm_interface import JohnVLLM
 from interfaces.base import BaseModelConfig
@@ -667,7 +667,7 @@ from pydantic import BaseModel, Field, ValidationError
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Character and Model Configuration
-character_info_json = "LLM_Wizard/characters/character.json"
+character_info_json = "Sagex/characters/character.json"
 instructions, user_name, character_name = load_character(character_info_json)
 
 # --- AGENT STATE DEFINITION (REVISED) ---
