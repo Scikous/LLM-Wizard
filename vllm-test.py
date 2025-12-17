@@ -1,74 +1,217 @@
-from pydantic import BaseModel, Field, field_validator, AfterValidator
+# import cv2
+# from PIL import Image
+# from interfaces.vllm_interface import JohnVLLM
+# from interfaces.base import BaseModelConfig
+# from gaming.game_capture import CaptureManager, SystemConfig
+# from gaming.main_menu_handler import main_menu_handler
+# from gaming.controls import InputControllerThread
+
+# def main():
+#     # 1. Setup Vision (Capture)
+#     config = SystemConfig(
+#         device_index=0,
+#         target_fps=30,
+#         target_size=(1000, 1000)
+#     )
+#     capture_manager = CaptureManager(config)
+#     capture_manager.start_system()
+
+#     # 2. Setup Brain (VLM)
+#     model_init_kwargs = {
+#         "gpu_memory_utilization": 0.93, 
+#         "max_model_len": 8000, 
+#         "trust_remote_code": True
+#     }
+#     model_config = BaseModelConfig(
+#         model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", 
+#         is_vision_model=True, 
+#         uses_special_chat_template=False, 
+#         model_init_kwargs=model_init_kwargs
+#     )
+#     llm = JohnVLLM(model_config).load_model(model_config)
+
+#     try:
+#         #init and start controller
+#         # controller = InputControllerThread()
+#         # controller.start()
+#         # 3. Capture a real frame
+#         # We grab a small window of frames and take the latest one
+#         capture_manager.start_capture()
+#         import time; time.sleep(0.2) 
+#         raw_frames = capture_manager.stop_capture()
+        
+#         if not raw_frames:
+#             print("Failed to capture frames.")
+#             return
+
+#         # Post-process (resize/letterbox) and convert to PIL for VLM
+#         processed_frames = capture_manager.post_process_frames([raw_frames[-1]])
+#         # CV2 (BGR) to PIL (RGB)
+#         rgb_frame = cv2.cvtColor(processed_frames[0], cv2.COLOR_BGR2RGB)
+#         pil_image = Image.fromarray(rgb_frame)
+
+#         # 4. Run Menu Handler
+#         target = main_menu_handler(llm, [pil_image])
+#         print
+#         # controller.execute_action({
+#         #                     "type": "key_press",
+#         #                     "details": {"key": key_action, "hold_time": 0.05}
+#         #                 })
+
+#     finally:
+#         capture_manager.stop_system()
+
+# if __name__ == "__main__":
+#     main()
+
+
+
+
+
+
+
+import cv2
+import time
+from PIL import Image
+
+# Interfaces
 from interfaces.vllm_interface import JohnVLLM
 from interfaces.base import BaseModelConfig
-from typing import List, Literal, Annotated, Optional
-from PIL import Image
-import json
+from gaming.controls import InputControllerThread  # Actual controller import
 
-#Paper Lily -- only a testing temp one
-# control_schema ={
-#     "move_up": "moves the player forward or moves selection up",
-#     "move_down": "moves the player down/backwards or moves selection down",
-#     "move_left": "moves the player left or moves selection left",
-#     "move_right": "moves the player right or moves selection right",
-#     "interact": "interacts with the environment",
-#     #add combat related values.
+# Local Modules
+from gaming.game_capture import CaptureManager, SystemConfig
+from gaming.main_menu_handler import main_menu_handler
 
-# }
+def main():
+    # 1. Setup Vision (Capture)
+    print(">>> Initializing Vision System...")
+    capture_config = SystemConfig(
+        device_index=0,
+        target_fps=30,
+        target_size=(1000, 1000)
+    )
+    capture_manager = CaptureManager(capture_config)
+    capture_manager.start_system()
 
-def dummy_keyboard(action, action_repeat):
-    return f"{action} {action_repeat} times"
+    # 2. Setup Controls (Input)
+    print(">>> Initializing Input Controller...")
+    controller = InputControllerThread()
+    controller.start()
 
-def dummy_controller(cur_action_index, next_action_index, layout):
-    index_diff = cur_action_index - next_action_index
-    repeat_action_times = abs(index_diff)
+    # 3. Setup Brain (VLM)
+    print(">>> Loading VLM...")
+    model_init_kwargs = {
+        "gpu_memory_utilization": 0.93, 
+        "max_model_len": 8000, 
+        "trust_remote_code": True
+    }
+    model_config = BaseModelConfig(
+        model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", 
+        is_vision_model=True, 
+        uses_special_chat_template=False, 
+        model_init_kwargs=model_init_kwargs
+    )
+    llm = JohnVLLM(model_config).load_model(model_config)
 
-    if repeat_action_times == 0:
-        return dummy_keyboard("interact", 1)
-    elif layout == "horizontal":
-        action_direction = "move_left" if index_diff > 0 else "move_right"
-        return dummy_keyboard(action_direction, repeat_action_times)
-    elif layout == "vertical":
-        action_direction = "move_up" if index_diff > 0 else "move_down"        
-        return dummy_keyboard(action_direction, repeat_action_times)
+    try:
+        print(">>> System Ready. Capturing frame...")
+        
+        # 4. Capture Pipeline
+        capture_manager.start_capture()
+        time.sleep(0.2) # Allow buffer to fill slightly
+        raw_frames = capture_manager.stop_capture()
+        
+        if not raw_frames:
+            print("!!! Failed to capture frames.")
+            return
 
-ass_p = "{\n"
-def analyze_game_info(prompt, images, schema):
+        # Process Frame (Resize + BGR->RGB)
+        processed_frames = capture_manager.post_process_frames([raw_frames[-1]])
+        rgb_frame = cv2.cvtColor(processed_frames[0], cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+
+        # 5. Execute Handler
+        print(">>> Running Main Menu Handler...")
+        main_menu_handler(llm, [pil_image], controller)
+
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    finally:
+        # Cleanup
+        capture_manager.stop_system()
+        controller.stop()
+        print(">>> System Shutdown.")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+# from interfaces.vllm_interface import JohnVLLM
+# from interfaces.base import BaseModelConfig
+# import json
+
+# def dummy_keyboard(action, action_repeat):
+#     return f"{action} {action_repeat} times"
+
+# def dummy_controller(cur_action_index, next_action_index, layout):
+#     index_diff = cur_action_index - next_action_index
+#     repeat_action_times = abs(index_diff)
+
+#     if repeat_action_times == 0:
+#         return dummy_keyboard("interact", 1)
+#     elif layout == "horizontal":
+#         action_direction = "move_left" if index_diff > 0 else "move_right"
+#         return dummy_keyboard(action_direction, repeat_action_times)
+#     elif layout == "vertical":
+#         action_direction = "move_up" if index_diff > 0 else "move_down"        
+#         return dummy_keyboard(action_direction, repeat_action_times)
+
+# ass_p = "{\n"
+# def analyze_game_info(prompt, images, schema):
     
-    guided_json_config = {
-        "max_tokens": 1028,
-        "temperature": 0.2,
-        # "enable_thinking": False
-        "skip_special_tokens": False,
-        "guided_decoding": {
-            "json": schema  # The key 'json' specifies the type
-        }
-    }
+#     guided_json_config = {
+#         "max_tokens": 1028,
+#         "temperature": 0.2,
+#         # "enable_thinking": False
+#         "skip_special_tokens": False,
+#         "guided_decoding": {
+#             "json": schema  # The key 'json' specifies the type
+#         }
+#     }
 
-    resp = llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
-    print('@'*100, '\n',resp)#  '\n-----\n', next_action)
-    game_info = json.loads(resp)
-    return game_info
+#     resp = llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
+#     print('@'*100, '\n',resp)#  '\n-----\n', next_action)
+#     game_info = json.loads(resp)
+#     return game_info
 
-def action_in_options(prompt, images, options):
-    act_regex = "|".join(options)
-    #action specific generation configuration
-    guided_json_config = {
-        "max_tokens": 1028,
-        "temperature": 0.2,
-        # "enable_thinking": False
-        "skip_special_tokens": False,
-        "guided_decoding": {
-            "regex": act_regex  # The key 'json' specifies the type
-        }
-    }
+# def action_in_options(prompt, images, options):
+#     act_regex = "|".join(options)
+#     #action specific generation configuration
+#     guided_json_config = {
+#         "max_tokens": 1028,
+#         "temperature": 0.2,
+#         # "enable_thinking": False
+#         "skip_special_tokens": False,
+#         "guided_decoding": {
+#             "regex": act_regex  # The key 'json' specifies the type
+#         }
+#     }
 
-    return llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
+#     return llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
     
-model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True,
-    }
-model_config = BaseModelConfig(model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", is_vision_model=True, uses_special_chat_template=False, model_init_kwargs=model_init_kwargs)
-llm = JohnVLLM(model_config).load_model(model_config)
+# model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True,
+#     }
+# model_config = BaseModelConfig(model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", is_vision_model=True, uses_special_chat_template=False, model_init_kwargs=model_init_kwargs)
+# llm = JohnVLLM(model_config).load_model(model_config)
 
 
 # def movement_handler():
@@ -156,7 +299,7 @@ llm = JohnVLLM(model_config).load_model(model_config)
 # cv2.destroyAllWindows()
 
 
-# #############################################################################
+#############################################################################
 # import time
 # import os
 # import logging
@@ -328,523 +471,6 @@ llm = JohnVLLM(model_config).load_model(model_config)
 # time.sleep(5)
 # take_action()
 # ##########################################################################
-
-
-
-
-
-
-# import pygame
-# import math
-# import random
-
-# # --- 1. Core Component: A Vector2D Class ---
-# # We need a simple class to handle 2D vectors for position, velocity, and forces.
-# class Vector2D:
-#     def __init__(self, x, y):
-#         self.x = x
-#         self.y = y
-
-#     def __add__(self, other):
-#         return Vector2D(self.x + other.x, self.y + other.y)
-
-#     def __sub__(self, other):
-#         return Vector2D(self.x - other.x, self.y - other.y)
-
-#     def __mul__(self, scalar):
-#         return Vector2D(self.x * scalar, self.y * scalar)
-
-#     def magnitude(self):
-#         return math.sqrt(self.x**2 + self.y**2)
-
-#     def normalize(self):
-#         mag = self.magnitude()
-#         if mag > 0:
-#             return Vector2D(self.x / mag, self.y / mag)
-#         return Vector2D(0, 0)
-
-#     def set_magnitude(self, new_mag):
-#         return self.normalize() * new_mag
-
-#     def limit(self, max_mag):
-#         if self.magnitude() > max_mag:
-#             return self.set_magnitude(max_mag)
-#         return self
-
-# # --- 2. The Agent (Our "Pilot") ---
-# class Agent:
-#     def __init__(self, x, y):
-#         self.position = Vector2D(x, y)
-#         self.velocity = Vector2D(0, 0)
-#         self.acceleration = Vector2D(0, 0)
-#         self.radius = 10
-#         self.max_speed = 1  # Maximum speed in pixels per frame
-#         self.max_force = 0.15 # Maximum steering force to apply
-
-#     def apply_force(self, force):
-#         # Newton's second law (F=ma), but we assume mass=1, so F=a
-#         self.acceleration += force
-
-#     def update(self):
-#         # Update velocity based on acceleration
-#         self.velocity += self.acceleration
-#         # Limit velocity to max_speed
-#         self.velocity = self.velocity.limit(self.max_speed)
-#         # Update position based on velocity
-#         self.position += self.velocity
-#         # Reset acceleration for the next frame
-#         self.acceleration = self.acceleration * 0
-
-#     def draw(self, screen):
-#         # Draw the agent as a circle
-#         pygame.draw.circle(screen, (255, 255, 255), (int(self.position.x), int(self.position.y)), self.radius)
-#         # Draw a line indicating direction
-#         end_pos = self.position + self.velocity.normalize() * 15
-#         pygame.draw.line(screen, (255, 0, 0), (self.position.x, self.position.y), (end_pos.x, end_pos.y), 2)
-
-
-#     # --- 3. The Steering Behaviors ---
-
-#     def arrive(self, target_pos):
-#         # This behavior steers the agent to a target and slows down as it approaches.
-#         desired_velocity = target_pos - self.position
-#         distance = desired_velocity.magnitude()
-
-#         slowing_radius = 100 # The radius within which the agent starts to slow down
-
-#         if distance < slowing_radius:
-#             # If inside the slowing radius, map the distance to a speed
-#             desired_speed = (distance / slowing_radius) * self.max_speed
-#             desired_velocity = desired_velocity.set_magnitude(desired_speed)
-#         else:
-#             # Otherwise, move at max speed
-#             desired_velocity = desired_velocity.set_magnitude(self.max_speed)
-
-#         # The core of steering: Steering Force = Desired Velocity - Current Velocity
-#         steering_force = desired_velocity - self.velocity
-#         steering_force = steering_force.limit(self.max_force)
-#         return steering_force
-
-#     def obstacle_avoidance(self, obstacles):
-#         # This behavior steers the agent to avoid a list of obstacles.
-#         total_avoidance_force = Vector2D(0, 0)
-#         avoidance_radius = 50 # How far ahead the agent "looks" for obstacles
-
-#         for obstacle in obstacles:
-#             dist_to_obstacle = (obstacle.position - self.position).magnitude()
-
-#             # Only consider obstacles that are close
-#             if 0 < dist_to_obstacle < avoidance_radius:
-#                 # Fleeing force is stronger the closer the agent is to the obstacle
-#                 flee_force = self.position - obstacle.position
-#                 # Scale the force inversely to the distance
-#                 flee_force = flee_force.set_magnitude(self.max_force * (1 - (dist_to_obstacle / avoidance_radius)))
-#                 total_avoidance_force += flee_force
-
-#         return total_avoidance_force.limit(self.max_force * 2) # Avoidance can be a stronger force
-
-
-#     def combine_forces(self, target, obstacles):
-#         # Weights determine the priority of each behavior.
-#         # Here, avoidance is much more important than arriving.
-#         arrive_weight = 0.5
-#         avoidance_weight = 2.0
-
-#         arrive_force = self.arrive(target) * arrive_weight
-#         avoidance_force = self.obstacle_avoidance(obstacles) * avoidance_weight
-
-#         # Apply the combined forces
-#         self.apply_force(arrive_force)
-#         self.apply_force(avoidance_force)
-
-
-# class Obstacle:
-#     def __init__(self, x, y, radius):
-#         self.position = Vector2D(x, y)
-#         self.radius = radius
-
-#     def draw(self, screen):
-#         pygame.draw.circle(screen, (100, 100, 255), (int(self.position.x), int(self.position.y)), self.radius)
-
-
-# # --- 4. The Main Simulation ---
-# def run_simulation():
-#     pygame.init()
-#     width, height = 1000, 1000
-#     screen = pygame.display.set_mode((width, height))
-#     pygame.display.set_caption("Steering Behavior Simulation")
-#     clock = pygame.time.Clock()
-
-#     # Create our agent and obstacles
-#     agent = Agent(499, 436)#(width / 2, height / 2)
-#     obstacles = [Obstacle(random.randint(100, 700), random.randint(100, 500), 30) for _ in range(7)]
-#     obstacles.append(Obstacle(429, 540, 50))
-#     target_pos = Vector2D(359,640)
-
-#     running = True
-#     while running:
-#         for event in pygame.event.get():
-#             if event.type == pygame.QUIT:
-#                 running = False
-#             # The VLM would update this target, but for now, we'll use the mouse
-#             if event.type == pygame.MOUSEBUTTONDOWN:
-#                 mx, my = pygame.mouse.get_pos()
-#                 target_pos = Vector2D(mx, my)
-
-#         # --- Core Logic ---
-#         # 1. Calculate and combine forces
-#         agent.combine_forces(target_pos, obstacles)
-
-#         # 2. Update agent's position
-#         agent.update()
-
-#         # 3. Keep agent on screen (wrapping)
-#         if agent.position.x > width: agent.position.x = 0
-#         if agent.position.x < 0: agent.position.x = width
-#         if agent.position.y > height: agent.position.y = 0
-#         if agent.position.y < 0: agent.position.y = height
-
-
-#         # --- Drawing ---
-#         screen.fill((20, 20, 20)) # Dark background
-
-#         # Draw the target
-#         pygame.draw.circle(screen, (0, 255, 0), (int(target_pos.x), int(target_pos.y)), 15)
-#         pygame.draw.circle(screen, (255,255,255), (int(target_pos.x), int(target_pos.y)), 15, 2)
-
-
-#         # Draw obstacles and the agent
-#         for obstacle in obstacles:
-#             obstacle.draw(screen)
-#         agent.draw(screen)
-
-#         pygame.display.flip()
-#         clock.tick(60) # Limit to 60 FPS
-
-#     pygame.quit()
-
-# if __name__ == '__main__':
-#     run_simulation()
-
-
-
-
-
-
-# #TODO: hold_time and probs press_threshold needa be modifieable/calculatable.
-# class ActionTranslator:
-#     """Translates a 2D intention vector into a discrete keyboard action."""
-#     def __init__(self, press_threshold=0.3, hold_time=0.1):
-#         """
-#         Initializes the translator.
-#         Args:
-#             press_threshold (float): How strong the vector's component must be to trigger a key press.
-#             hold_time (float): The duration in seconds for the key press action.
-#         """
-#         self.press_threshold = press_threshold
-#         self.hold_time = hold_time
-
-#     def translate(self, vector, directional_constraints):
-#         """
-#         Converts the vector into an action dictionary.
-#         Args:
-#             vector (Vector2D): The intention vector from the MovementController.
-#             directional_constraints (str): e.g., 'eight_way', 'four_way', 'horizontal_only'.
-        
-#         Returns:
-#             dict or None: An action dictionary like {"key_press": ["w", "a"], "hold_time": 0.1} or None if no action.
-#         """
-#         keys_to_press = []
-
-#         # Horizontal Movement
-#         if vector.x < -self.press_threshold:
-#             keys_to_press.append("left")
-#         elif vector.x > self.press_threshold:
-#             keys_to_press.append("right")
-
-#         # Vertical Movement
-#         if directional_constraints in ['eight_way', 'four_way', 'vertical_only']:
-#             if vector.y < -self.press_threshold:
-#                 keys_to_press.append("up")
-#             elif vector.y > self.press_threshold:
-#                 keys_to_press.append("down")
-
-#         # Handle 'four_way' constraint (no diagonals)
-#         if directional_constraints == 'four_way' and len(keys_to_press) > 1:
-#             # Prioritize the direction with the stronger intention
-#             if abs(vector.x) > abs(vector.y):
-#                 keys_to_press = [k for k in keys_to_press if k in ["left", "right"]]
-#             else:
-#                 keys_to_press = [k for k in keys_to_press if k in ["up", "down"]]
-        
-#         if not keys_to_press:
-#             return None
-
-#         return {"key_press": sorted(keys_to_press), "hold_time": self.hold_time}
-
-
-
-# if __name__ == '__main__':
-#     # --- 1. Define NEW Game Configuration ---
-#     # Now includes the real-world pixels-per-second speed.
-#     game_config = {
-#         'movement_mode': 'constant_speed',
-#         'directional_constraints': 'eight_way',
-#         'max_speed_pps': 193.82, # The known horizontal speed
-#         'max_tick_speed': 10.0 # How many pixels the agent wants to move per decision tick
-#     }
-
-#     # --- 2. Initialize Controller and Game State ---
-#     print("--- SIMULATION: Calibrated Movement with Arrival Logic ---")
-#     controller = MovementController(game_config)
-    
-#     character_position = Vector2D(499, 436)
-#     target_position = Vector2D(359, 640)
-#     obstacles = [{'position': Vector2D(250, 220), 'radius': 60, 'impenetrable': True}]
-
-#     # --- 3. Run The Simulation Loop ---
-#     time.sleep(5.0)
-#     for i in range(500):
-#         # MODIFIED: Pass the interaction_range to the decision maker
-#         # For an NPC, this might be 30px, for an item, 5px.
-#         action = controller.decide_action(
-#             character_position, 
-#             target_position, 
-#             obstacles, 
-#             interaction_range=50.0
-#         )
-        
-#         # --- Mock Game Engine ---
-#         print(f"TickAA {i+1:03d} | Pos: {character_position} | Action: {action}")
-        
-#         if action:
-#             # Simulate movement based on the DYNAMIC hold_time
-#             distance_to_move = game_config['max_speed_pps'] * action['hold_time']
-#             move_vector = Vector2D()
-#             if "left" in action['key_press']: move_vector.x -= 1
-#             if "right" in action['key_press']: move_vector.x += 1
-#             if "up" in action['key_press']: move_vector.y -= 1
-#             if "down" in action['key_press']: move_vector.y += 1
-            
-#             print(move_vector.normalize(), distance_to_move, move_vector.x)
-#             character_position += move_vector.normalize() * distance_to_move
-#         else:
-#             # This will now trigger when we are in range
-#             print("\n--- ACTION IS NONE: Target likely reached or no movement needed. ---\n")
-#             break
-
-#     final_distance = (character_position - target_position).magnitude()
-#     print(f"Simulation ended. Final distance to target: {final_distance:.2f} pixels.")
-
-
-
-# if __name__ == '__main__':
-#     # --- 1. Define Game Configuration ---
-#     # This dictionary mimics knowing the rules of the game you're playing.
-#     game_config_8_way = {
-#         'movement_mode': 'acceleration',
-#         'directional_constraints': 'eight_way',
-#         'max_speed': 4.0
-#     }
-    
-#     game_config_4_way_const = {
-#         'movement_mode': 'constant_speed',
-#         'directional_constraints': 'four_way',
-#         'max_speed': 3.0 # A constant speed game
-#     }
-
-#     # --- 2. Initialize Controller and Game State ---
-#     print("--- SIMULATION 1: 8-Way Acceleration Movement ---")
-#     controller = MovementController(game_config_8_way)
-    
-#     # Mock game state
-#     character_position = Vector2D(499, 436)
-#     target_position = Vector2D(359, 640)
-#     obstacles = [
-#         {'position': Vector2D(400, 280), 'radius': 50, 'impenetrable': True},
-#         {'position': Vector2D(400, 380), 'radius': 50, 'impenetrable': False} # A non-solid obstacle
-#     ]
-
-#     # --- 3. Run The Simulation Loop ---
-#     time.sleep(5)
-#     for i in range(250):
-#         # VLM would provide this data in a real scenario
-#         action = controller.decide_action(character_position, target_position, obstacles)
-        
-#         # --- Mock Game Engine ---
-#         # A real game would execute the action. We'll simulate it.
-#         print(f"Tick {i+1:03d} | Pos: {character_position} | Action: {action}")
-        
-#         if action:
-#             # Simple simulation: move 3 pixels in the direction of the keys
-#             if "left" in action['key_press']: character_position.x -= 36
-#             if "right" in action['key_press']: character_position.x += 36
-#             if "up" in action['key_press']: character_position.y -= 36
-#             if "down" in action['key_press']: character_position.y += 36
-#             if "left" in action['key_press']: take_action(key_press=action["key_press"])
-#             if "right" in action['key_press']: take_action(key_press=action["key_press"])
-#             if "up" in action['key_press']: take_action(key_press=action["key_press"])
-#             if "down" in action['key_press']: take_action(key_press=action["key_press"])
-#         # ------------------------
-
-#         if (character_position - target_position).magnitude() < 10:
-#             print("\n--- TARGET REACHED! ---\n")
-#             break
-
-# # --- 2. The Agent (The "Pilot") ---
-# # This class contains all the logic for movement and decision-making.
-# class Agent:
-#     """Represents the character, handling its own physics and steering."""
-#     def __init__(self, start_pos_x, start_pos_y):
-#         self.position = Vector2D(start_pos_x, start_pos_y)
-#         self.velocity = Vector2D(0, 0)
-#         self.acceleration = Vector2D(0, 0)
-        
-#         # --- Configurable Parameters ---
-#         self.max_speed = 4.0        # How fast the agent can move
-#         self.max_force = 0.15       # How sharply the agent can turn
-#         self.slowing_radius = 100.0 # The radius to start slowing down for arrival
-#         self.avoidance_radius = 50.0 # The radius to "see" obstacles
-        
-#         # Behavior weights
-#         self.arrive_weight = 0.5
-#         self.avoidance_weight = 2.0
-
-#     def apply_force(self, force):
-#         """Adds a force to the agent's acceleration for the current tick."""
-#         self.acceleration += force
-
-#     def update(self):
-#         """Updates the agent's position based on its physics."""
-#         self.velocity += self.acceleration
-#         self.velocity = self.velocity.limit(self.max_speed)
-#         self.position += self.velocity
-#         self.acceleration *= 0  # Reset acceleration for the next frame/tick
-
-#     # --- Steering Behavior Logic ---
-
-#     def _arrive(self, target_pos):
-#         """Calculates the steering force to arrive at a target."""
-#         desired_velocity = target_pos - self.position
-#         distance = desired_velocity.magnitude()
-
-#         if distance < self.slowing_radius:
-#             desired_speed = (distance / self.slowing_radius) * self.max_speed
-#             desired_velocity = desired_velocity.set_magnitude(desired_speed)
-#         else:
-#             desired_velocity = desired_velocity.set_magnitude(self.max_speed)
-
-#         steering_force = desired_velocity - self.velocity
-#         return steering_force.limit(self.max_force)
-
-#     def _obstacle_avoidance(self, obstacles):
-#         """Calculates the steering force to avoid a list of obstacles."""
-#         total_avoidance_force = Vector2D(0, 0)
-
-#         #matrixify?
-#         for obstacle in obstacles:
-#             dist_to_obstacle = (obstacle['position'] - self.position).magnitude()
-            
-#             # Combine agent and obstacle radius for collision check
-#             effective_radius = self.avoidance_radius + obstacle['radius']
-
-#             if 0 < dist_to_obstacle < effective_radius:
-#                 flee_force = self.position - obstacle['position']
-#                 # Scale force: the closer the obstacle, the stronger the repulsion
-#                 scale = 1 - (dist_to_obstacle / effective_radius)
-#                 flee_force = flee_force.set_magnitude(self.max_force * scale)
-#                 total_avoidance_force += flee_force
-        
-#         # Avoidance can be a stronger, more urgent force
-#         return total_avoidance_force.limit(self.max_force * self.avoidance_weight)
-
-
-#     def compute_steering(self, target_pos, obstacles):
-#         """
-#         Calculates all steering forces, combines them, and applies them.
-#         This is the "thinking" part of the agent for a single tick.
-#         """
-#         arrive_force = self._arrive(target_pos) * self.arrive_weight
-#         avoidance_force = self._obstacle_avoidance(obstacles)
-
-#         # Apply the combined forces
-#         self.apply_force(arrive_force)
-#         self.apply_force(avoidance_force)
-
-
-# # --- 3. The Main Execution Logic ---
-# # This is where you would integrate the VLM data.
-# if __name__ == '__main__':
-#     print("--- Running Steering System Simulation (Functional Skeleton) ---")
-
-#     # 1. INITIALIZE THE AGENT
-#     # Create an agent starting at position (100, 100)
-#     my_agent = Agent(start_pos_x=499, start_pos_y=436)
-#     print(f"Initial Agent Position: {my_agent.position}")
-
-#     # 2. DEFINE THE ENVIRONMENT (This is where VLM input goes)
-#     # The VLM would provide these coordinates in a real application.
-#     target_position = Vector2D(359, 640)
-    
-#     # Obstacles are represented as a list of dictionaries.
-#     # Each dict has a 'position' (Vector2D) and a 'radius' (float).
-#     obstacle_list = [
-#         {'position': Vector2D(350, 250), 'radius': 50},
-#         {'position': Vector2D(400, 400), 'radius': 80},
-#         {'position': Vector2D(600, 300), 'radius': 40},
-#     ]
-
-#     print(f"Target set to: {target_position}")
-#     print(f"Obstacles loaded: {len(obstacle_list)}")
-#     print("-" * 20)
-
-#     # 3. RUN THE SIMULATION LOOP
-#     # We simulate 150 frames/ticks of movement.
-#     simulation_steps = 150
-#     for i in range(simulation_steps):
-#         # --- This is the core loop for your application ---
-        
-#         # A. (VLM STEP) Get the latest data. For this simulation, data is static.
-#         # In a real app: target_position, obstacle_list = get_vlm_data()
-        
-#         # B. (AGENT THINKING) Agent calculates its desired movement for this tick.
-#         my_agent.compute_steering(target_position, obstacle_list)
-        
-#         # C. (AGENT ACTION) Agent updates its position based on the calculated forces.
-#         my_agent.update()
-        
-#         # D. (OUTPUT) Print the agent's new position.
-#         print(f"Step {i+1:03d}: Agent Position = {my_agent.position}")
-
-#         # Check for arrival (optional)
-#         if (my_agent.position - target_position).magnitude() < 5:
-#             print("\n--- Target Reached! ---")
-#             break
-            
-#     print("\n--- Simulation Complete ---")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

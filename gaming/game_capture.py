@@ -226,8 +226,8 @@ if __name__ == "__main__":
     # Configuration
     config = SystemConfig(
         device_index=0,
-        src_width=2560,
-        src_height=1440,
+        src_width=1920,
+        src_height=1080,
         target_fps=60,
         target_size=(1000, 1000), # VLM Preferred Size
         enable_psutil=True,       

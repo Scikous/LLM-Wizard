@@ -1,8 +1,11 @@
 import logging
 import time
-from typing import Dict, Any
 from threading import Thread, Event
 from queue import Queue
+
+
+from typing import Dict, Any, List, Tuple, Union
+import heapq
 
 try:
     from evdev import UInput, ecodes as e
@@ -157,19 +160,110 @@ class InputController:
             logging.warning(f"Unknown key: '{key_str}'")
         return keycode
 
-    def _handle_key_press(self, details: Dict[str, Any]):
-        """Handles a single, quick key press (tap)."""
-        keys = [key for key in details.get("key")]
-        key_codes = [self._get_keycode(key) for key in keys]
-        # key_codes = [key for key in self._get_keycode(details.get("key"))]
-        # key_code = self._get_keycode(details.get("key"))
-        hold_time = details.get("hold_time", 0.05)
-        # if not key_code: return
-        for key_code in key_codes:
-            self.ui.write(e.EV_KEY, key_code, 1); self.ui.syn() # Key down
-        time.sleep(hold_time)
-        for key_code in key_codes:
-            self.ui.write(e.EV_KEY, key_code, 0); self.ui.syn() # Key up
+    def _handle_key_press(self, details: Dict[str, Any]) -> None:
+        """
+        Handles key presses with precise timing, capable of simultaneous chords, 
+        staggered typing, and correct double-typing (e.g., 'hello').
+        """
+        # Default stagger to 0.05 if not provided but a list is given, 
+        # to ensure typing naturally separates keys unless specific chords are requested.
+        # If the user explicitly wants 0 (simultaneous), they should pass 0.
+        stagger = details.get("stagger_delay", 0.0)
+        if "key" in details and isinstance(details["key"], list) and "stagger_delay" not in details:
+            # Auto-apply slight stagger for lists to prevent 'helo' issues if user forgot param
+            if len(details["key"]) > 1:
+                stagger = 0.05
+
+        timeline = self._build_event_timeline(details, stagger=stagger)
+        self._execute_timeline(timeline)
+
+    def _build_event_timeline(self, details: Dict[str, Any], stagger: float = 0.0) -> List[Tuple[float, int, int, int, int]]:
+        """
+        Constructs a priority queue.
+        
+        Heap Tuple: (timestamp, priority, insertion_index, key_code, value)
+        
+        New Priority Scheme (Crucial for 'hello'):
+        0: Modifier Down (Shift starts first)
+        1: Standard Key Up (Release previous 'l' before pressing next 'l')
+        2: Standard Key Down (Press next 'l')
+        3: Modifier Up (Shift ends last)
+        """
+        events = []
+        modifiers = {'shift', 'left_shift', 'right_shift', 'ctrl', 'left_ctrl', 'right_ctrl', 'alt', 'left_alt'}
+        
+        key_actions: List[Tuple[str, float]] = []
+        
+        # parse inputs
+        if "key_durations" in details:
+            for k, duration in details["key_durations"].items():
+                key_actions.append((k, float(duration)))
+        elif "key" in details:
+            raw_keys = details["key"]
+            if isinstance(raw_keys, str): raw_keys = [raw_keys]
+            default_dur = details.get("hold_time", 0.05)
+            for k in raw_keys:
+                key_actions.append((k, float(default_dur)))
+
+        current_start_time = 0.0
+        
+        for i, (key_name, duration) in enumerate(key_actions):
+            key_code = self._get_keycode(key_name)
+            if not key_code: continue
+                
+            is_mod = key_name.lower() in modifiers
+            
+            # PRIORITY FIX: Up (1) must happen before Down (2) for same-timestamp events
+            prio_down = 0 if is_mod else 2
+            prio_up = 3 if is_mod else 1
+            
+            # Schedule Key Down
+            heapq.heappush(events, (current_start_time, prio_down, i, key_code, 1))
+            
+            # Schedule Key Up
+            heapq.heappush(events, (current_start_time + duration, prio_up, i, key_code, 0))
+            
+            if stagger > 0:
+                current_start_time += stagger
+
+        return events
+
+    def _execute_timeline(self, events: List[Tuple[float, int, int, int, int]]) -> None:
+        if not events: return
+
+        reference_time = time.perf_counter()
+        
+        while events:
+            trigger_time, _, _, key_code, value = heapq.heappop(events)
+            
+            # Precision wait
+            now = time.perf_counter()
+            target_real_time = reference_time + trigger_time
+            wait = target_real_time - now
+            if wait > 0:
+                time.sleep(wait)
+            
+            self.ui.write(e.EV_KEY, key_code, value)
+            
+            # BATCHING LOGIC WITH CONFLICT PROTECTION
+            # Check if we should process the next event in the same packet (syn)
+            if events:
+                next_time, _, _, next_key, next_val = events[0]
+                
+                # If times match exactly (within tolerance)
+                if abs(next_time - trigger_time) < 0.0001:
+                    # CONFLICT CHECK:
+                    # If we just wrote Key_L UP, and the next event is Key_L DOWN,
+                    # we CANNOT batch them. The OS will miss the release.
+                    # We must Syn now to separate them.
+                    if key_code == next_key and value != next_val:
+                        self.ui.syn()
+                        continue 
+                    
+                    # Otherwise, it's safe to batch (e.g. Shift Down + W Down)
+                    continue
+                
+            self.ui.syn()
 
     def _handle_key_down(self, details: Dict[str, Any]):
         """Handles pressing and holding a key down."""
@@ -238,54 +332,56 @@ class InputControllerThread:
         self.action_queue.put(action)
 
 
-# if __name__ == "__main__":
-#     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s] %(message)s")
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - [%(filename)s] %(message)s")
     
-#     controller_thread = None
-#     try:
-#         # Use the new threaded controller
-#         controller_thread = InputControllerThread()
-#         controller_thread.start()
+    controller_thread = None
+    try:
+        # Use the new threaded controller
+        controller_thread = InputControllerThread()
+        controller_thread.start()
         
-#         print("Threaded controller initialized. The virtual cursor starts at screen center.")
-#         print("Testing in 3 seconds... These commands will execute without blocking the main script.")
-#         print("Notice how the script prints messages instantly.")
-#         time.sleep(3)
+        print("Threaded controller initialized. The virtual cursor starts at screen center.")
+        print("Testing in 3 seconds... These commands will execute without blocking the main script.")
+        print("Notice how the script prints messages instantly.")
+        time.sleep(3)
 
-#         # --- Mouse Test ---
-#         print("--- Testing Mouse ---")
-#         print("Queueing move to (300, 400)...")
-#         controller_thread.execute_action({"type": "mouse_move", "details": {"target_x": 300, "target_y": 400}})
+        # --- Mouse Test ---
+        # print("--- Testing Mouse ---")
+        # print("Queueing move to (300, 400)...")
+        # controller_thread.execute_action({"type": "mouse_move", "details": {"target_x": 300, "target_y": 400}})
         
-#         print("Queueing a click...")
-#         # Note: we add a small delay in the main thread only if we want to see the actions visually separated.
-#         # The controller thread handles its own internal delays.
-#         time.sleep(1) 
-#         controller_thread.execute_action({"type": "mouse_click", "details": {}})
+        # print("Queueing a click...")
+        # # Note: we add a small delay in the main thread only if we want to see the actions visually separated.
+        # # The controller thread handles its own internal delays.
+        # time.sleep(1) 
+        # controller_thread.execute_action({"type": "mouse_click", "details": {}})
         
-#         # --- Keyboard Test ---
-#         print("\n--- Testing Keyboard ---")
-#         print("Queueing 'hello'...")
-#         time.sleep(1)
-#         # We can now create helper functions to queue complex sequences
-#         for char in "hello":
-#             controller_thread.execute_action({"type": "key_press", "details": {"key": char}})
+        # --- Keyboard Test ---
+        print("\n--- Testing Keyboard ---")
+        print("Queueing 'hello'...")
+        time.sleep(1)
+        # We can now create helper functions to queue complex sequences
+        # for char in "hello":
+        # controller_thread.execute_action({"type": "key_press", "details": {"key": ['h','shift']}})
+        controller_thread.execute_action({"type": "key_press", "details": {"key": ['h','e','l','l','o']}})
+        controller_thread.execute_action({"type": "key_press", "details": {"key_durations": {'a': 1.0, "shift": 0.5}}})
 
-#         print("Queueing ' WORLD' (with shift modifier)...")
-#         controller_thread.execute_action({"type": "key_press", "details": {"key": "space"}})
-#         controller_thread.execute_action({"type": "key_down", "details": {"key": "shift"}})
-#         for char in "world":
-#              controller_thread.execute_action({"type": "key_press", "details": {"key": char}})
-#         controller_thread.execute_action({"type": "key_up", "details": {"key": "shift"}})
+        # print("Queueing ' WORLD' (with shift modifier)...")
+        # controller_thread.execute_action({"type": "key_press", "details": {"key": "space"}})
+        # controller_thread.execute_action({"type": "key_down", "details": {"key": "shift"}})
+        # for char in "world":
+        #      controller_thread.execute_action({"type": "key_press", "details": {"key": char}})
+        # controller_thread.execute_action({"type": "key_up", "details": {"key": "shift"}})
         
-#         print("\nAll actions queued. Main script can do other work now or wait.")
-#         # Wait for the queue to be empty before finishing
-#         controller_thread.action_queue.join()
-#         print("All queued actions have been executed.")
+        print("\nAll actions queued. Main script can do other work now or wait.")
+        # Wait for the queue to be empty before finishing
+        controller_thread.action_queue.join()
+        print("All queued actions have been executed.")
 
-#     except Exception as main_err:
-#         logging.error(f"An error occurred during the test: {main_err}", exc_info=True)
-#     finally:
-#         if controller_thread:
-#             controller_thread.stop()
-#         print("Script finished.")
+    except Exception as main_err:
+        logging.error(f"An error occurred during the test: {main_err}", exc_info=True)
+    finally:
+        if controller_thread:
+            controller_thread.stop()
+        print("Script finished.")

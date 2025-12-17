@@ -119,8 +119,10 @@ def dialogue_handler():
         menu_layout = None
         print(dummy_controller(cur_selection_index, next_action_index, menu_layout))
 
-model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True,
-    }
-model_config = BaseModelConfig(model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", is_vision_model=True, uses_special_chat_template=False, model_init_kwargs=model_init_kwargs)
-llm = JohnVLLM(model_config).load_model(model_config)
-dialogue_handler()
+
+if __name__ == "__main__":
+    model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True,
+        }
+    model_config = BaseModelConfig(model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", is_vision_model=True, uses_special_chat_template=False, model_init_kwargs=model_init_kwargs)
+    llm = JohnVLLM(model_config).load_model(model_config)
+    dialogue_handler()
