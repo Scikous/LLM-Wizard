@@ -1,3 +1,120 @@
+# import cv2
+# import time
+# import traceback
+# from PIL import Image
+
+# # Core Interfaces
+# from interfaces.vllm_interface import JohnVLLM
+# from interfaces.base import BaseModelConfig
+# from gaming.controls import InputControllerThread
+
+# # Local Modules
+# from gaming.game_capture import CaptureManager, SystemConfig
+# from gaming.game_router import decide_game_state
+# from gaming.main_menu_handler import main_menu_handler
+# from gaming.dialogue_handler import dialogue_handler
+
+# def capture_latest_frame(capture_manager):
+#     """Helper to grab the freshest frame from the capture thread."""
+#     capture_manager.start_capture()
+#     time.sleep(0.1) # Short buffer fill
+#     raw_frames = capture_manager.stop_capture()
+    
+#     if not raw_frames:
+#         return None
+        
+#     # Process: Resize -> BGR to RGB -> PIL
+#     processed = capture_manager.post_process_frames([raw_frames[-1]])
+#     rgb_frame = cv2.cvtColor(processed[0], cv2.COLOR_BGR2RGB)
+#     return Image.fromarray(rgb_frame)
+
+# def main():
+#     # --- 1. System Initialization ---
+#     print(">>> [SYSTEM] Initializing Vision...")
+#     capture_config = SystemConfig(target_fps=30, target_size=(1000, 1000))
+#     capture_manager = CaptureManager(capture_config)
+#     capture_manager.start_system()
+
+#     print(">>> [SYSTEM] Initializing Controls...")
+#     controller = InputControllerThread()
+#     controller.start()
+
+#     print(">>> [SYSTEM] Loading Brain (Qwen-VL)...")
+#     model_init_kwargs = {
+#         "gpu_memory_utilization": 0.93, 
+#         "max_model_len": 8000, 
+#         "trust_remote_code": True
+#     }
+#     model_config = BaseModelConfig(
+#         model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", 
+#         is_vision_model=True, 
+#         model_init_kwargs=model_init_kwargs
+#     )
+#     llm = JohnVLLM(model_config).load_model(model_config)
+
+#     print("\n" + "="*50)
+#     print(">>> AI AGENT STARTED. PRESS CTRL+C TO STOP.")
+#     print("="*50 + "\n")
+
+#     # --- 2. The Infinite Game Loop ---
+#     try:
+#         while True:
+#             # A. Capture State
+#             pil_image = capture_latest_frame(capture_manager)
+#             if pil_image is None:
+#                 print("! Warning: No frame captured. Retrying...")
+#                 time.sleep(0.5)
+#                 continue
+
+#             # B. Router: What are we looking at?
+#             print("\n[ROUTER] Analyzing Game State...")
+#             state_data = decide_game_state(llm, [pil_image])
+#             current_state = state_data.get("current_state", "unknown")
+#             confidence = state_data.get("confidence_score", 0.0)
+#             reason = state_data.get("reasoning", "No reasoning provided.")
+            
+#             print(f">>> STATE DETECTED: [{current_state.upper()}] (Conf: {confidence:.2f})")
+#             print(f">>> Reason: {reason}")
+
+#             # C. Dispatch to Handler
+#             if current_state == "main_menu":
+#                 # Handles Start Screen, Settings, Pause Menus
+#                 main_menu_handler(llm, [pil_image], controller)
+                
+#             elif current_state == "dialogue":
+#                 # Handles Text Boxes and Conversation Choices
+#                 dialogue_handler(llm, [pil_image], controller)
+                
+#             elif current_state == "gameplay":
+#                 print("[GAMEPLAY] No specific handler yet. Exploring...")
+#                 # Placeholder: In the future, call gameplay_handler(llm, img, controller)
+#                 # For now, maybe just walk forward a bit?
+#                 # controller.execute_action({"type": "key_press", "details": {"key": "up", "hold_time": 0.5}})
+#                 time.sleep(1) 
+                
+#             elif current_state == "unknown":
+#                 print("[UNKNOWN] Unsure what to do. Waiting...")
+#                 time.sleep(1)
+
+#             # D. Loop Rate Limiting
+#             # Prevent the loop from running too hot if LLM is very fast, 
+#             # though usually the LLM inference acts as the natural rate limiter.
+#             time.sleep(0.1)
+
+#     except KeyboardInterrupt:
+#         print("\n>>> [SYSTEM] Stopping Manual Override...")
+#     except Exception as e:
+#         print(f"\n>>> [CRITICAL ERROR] {e}")
+#         traceback.print_exc()
+#     finally:
+#         # --- 3. Cleanup ---
+#         capture_manager.stop_system()
+#         controller.stop()
+#         print(">>> [SYSTEM] Shutdown Complete.")
+
+# if __name__ == "__main__":
+#     main()
+
 import cv2
 import time
 import traceback
@@ -11,22 +128,58 @@ from gaming.controls import InputControllerThread
 # Local Modules
 from gaming.game_capture import CaptureManager, SystemConfig
 from gaming.game_router import decide_game_state
+from gaming.gameplay_structs import GameplayScan # New Structs
+from gaming.vlm_utils import analyze_game_info
+
+# Handlers
 from gaming.main_menu_handler import main_menu_handler
 from gaming.dialogue_handler import dialogue_handler
+from gaming.movement_handler import MovementAgent # New Agent
 
 def capture_latest_frame(capture_manager):
     """Helper to grab the freshest frame from the capture thread."""
     capture_manager.start_capture()
-    time.sleep(0.1) # Short buffer fill
+    time.sleep(0.1)
     raw_frames = capture_manager.stop_capture()
-    
-    if not raw_frames:
-        return None
-        
-    # Process: Resize -> BGR to RGB -> PIL
+    if not raw_frames: return None
     processed = capture_manager.post_process_frames([raw_frames[-1]])
     rgb_frame = cv2.cvtColor(processed[0], cv2.COLOR_BGR2RGB)
     return Image.fromarray(rgb_frame)
+
+def gameplay_handler(llm, images, controller, capture_manager):
+    """
+    1. Scan the screen for Character, Target, and Obstacles.
+    2. Hand over data to MovementAgent to execute real-time navigation.
+    """
+    print("\n[GAMEPLAY] Scanning environment...")
+    
+    # Define Schema for VLM
+    scan_schema = GameplayScan.model_json_schema()
+    
+    prompt = (
+        "Analyze the gameplay screen. Identify the 'player_character', a valid 'target' to interact with or move towards "
+        "(like a door, npc, or path forward), and any large 'obstacles'. "
+        "Return bounding boxes [x1, y1, x2, y2] in 0-1000 coordinate space."
+    )
+    
+    try:
+        # VLM Analysis
+        scan_json = analyze_game_info(llm, prompt, images, scan_schema)
+        scan_data = GameplayScan(**scan_json)
+        
+        print(f"[GAMEPLAY] Plan: Move '{scan_data.character.label}' -> '{scan_data.target.label}'")
+        
+        # Instantiate Agent
+        agent = MovementAgent(controller)
+        
+        # Handover control to the real-time loop
+        # This will block until success, timeout, or error
+        result = agent.execute_navigation(capture_manager, scan_data)
+        
+        print(f"[GAMEPLAY] Result: {result}")
+        
+    except Exception as e:
+        print(f"[GAMEPLAY] Error during scan or nav: {e}")
 
 def main():
     # --- 1. System Initialization ---
@@ -52,135 +205,51 @@ def main():
     )
     llm = JohnVLLM(model_config).load_model(model_config)
 
-    print("\n" + "="*50)
-    print(">>> AI AGENT STARTED. PRESS CTRL+C TO STOP.")
-    print("="*50 + "\n")
+    print("\n>>> AI AGENT STARTED. PRESS CTRL+C TO STOP.\n")
 
     # --- 2. The Infinite Game Loop ---
     try:
         while True:
-            # A. Capture State
+            # A. Capture
             pil_image = capture_latest_frame(capture_manager)
             if pil_image is None:
-                print("! Warning: No frame captured. Retrying...")
-                time.sleep(0.5)
                 continue
 
-            # B. Router: What are we looking at?
+            # B. Router
             print("\n[ROUTER] Analyzing Game State...")
             state_data = decide_game_state(llm, [pil_image])
             current_state = state_data.get("current_state", "unknown")
-            confidence = state_data.get("confidence_score", 0.0)
-            reason = state_data.get("reasoning", "No reasoning provided.")
             
-            print(f">>> STATE DETECTED: [{current_state.upper()}] (Conf: {confidence:.2f})")
-            print(f">>> Reason: {reason}")
+            print(f">>> STATE: [{current_state.upper()}] | Conf: {state_data.get('confidence_score', 0):.2f}")
 
-            # C. Dispatch to Handler
+            # C. Dispatch
             if current_state == "main_menu":
-                # Handles Start Screen, Settings, Pause Menus
                 main_menu_handler(llm, [pil_image], controller)
                 
             elif current_state == "dialogue":
-                # Handles Text Boxes and Conversation Choices
                 dialogue_handler(llm, [pil_image], controller)
                 
             elif current_state == "gameplay":
-                print("[GAMEPLAY] No specific handler yet. Exploring...")
-                # Placeholder: In the future, call gameplay_handler(llm, img, controller)
-                # For now, maybe just walk forward a bit?
-                # controller.execute_action({"type": "key_press", "details": {"key": "up", "hold_time": 0.5}})
-                time.sleep(1) 
+                # Pass capture_manager so the agent can grab its own high-speed frames
+                gameplay_handler(llm, [pil_image], controller, capture_manager)
                 
             elif current_state == "unknown":
-                print("[UNKNOWN] Unsure what to do. Waiting...")
                 time.sleep(1)
 
-            # D. Loop Rate Limiting
-            # Prevent the loop from running too hot if LLM is very fast, 
-            # though usually the LLM inference acts as the natural rate limiter.
             time.sleep(0.1)
 
     except KeyboardInterrupt:
-        print("\n>>> [SYSTEM] Stopping Manual Override...")
+        print("\n>>> [SYSTEM] Stopping...")
     except Exception as e:
         print(f"\n>>> [CRITICAL ERROR] {e}")
         traceback.print_exc()
     finally:
-        # --- 3. Cleanup ---
         capture_manager.stop_system()
         controller.stop()
         print(">>> [SYSTEM] Shutdown Complete.")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-# import cv2
-# import time
-# from PIL import Image
-
-# # Interfaces
-# from interfaces.vllm_interface import JohnVLLM
-# from interfaces.base import BaseModelConfig
-# from gaming.controls import InputControllerThread
-
-# # Local Modules
-# from gaming.game_capture import CaptureManager, SystemConfig
-# from gaming.main_menu_handler import main_menu_handler
-# from gaming.navigation_utils import ensure_menu_selection
-
-# def main():
-#     # 1. Setup Systems
-#     capture_config = SystemConfig(target_fps=30, target_size=(1000, 1000))
-#     capture_manager = CaptureManager(capture_config)
-#     capture_manager.start_system()
-
-#     controller = InputControllerThread()
-#     controller.start()
-
-#     model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True}
-#     model_config = BaseModelConfig(
-#         model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", 
-#         is_vision_model=True, 
-#         model_init_kwargs=model_init_kwargs
-#     )
-#     llm = JohnVLLM(model_config).load_model(model_config)
-
-#     try:
-#         print(">>> System Ready.")
-        
-#         # --- CRITICAL STEP: Wake up the menu ---
-#         # Before we look, we wiggle the controls to ensure a cursor is visible.
-#         ensure_menu_selection(controller)
-        
-#         # Give game a split second to render the cursor highlight
-#         time.sleep(0.2) 
-
-#         # 2. Capture Frame
-#         capture_manager.start_capture()
-#         time.sleep(0.1) # Short grab
-#         raw_frames = capture_manager.stop_capture()
-        
-#         if raw_frames:
-#             processed = capture_manager.post_process_frames([raw_frames[-1]])
-#             rgb_frame = cv2.cvtColor(processed[0], cv2.COLOR_BGR2RGB)
-#             pil_image = Image.fromarray(rgb_frame)
-
-#             # 3. Run Handler
-#             main_menu_handler(llm, [pil_image], controller)
-
-#     finally:
-#         capture_manager.stop_system()
-#         controller.stop()
-
-# if __name__ == "__main__":
-#     main()
-
-
 
 # ## bbox acc checking
 # import cv2
