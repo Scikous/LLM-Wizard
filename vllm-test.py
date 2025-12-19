@@ -1,22 +1,34 @@
 # import cv2
+# import time
 # from PIL import Image
+
+# # Interfaces
 # from interfaces.vllm_interface import JohnVLLM
 # from interfaces.base import BaseModelConfig
+# from gaming.controls import InputControllerThread  # Actual controller import
+
+# # Local Modules
 # from gaming.game_capture import CaptureManager, SystemConfig
 # from gaming.main_menu_handler import main_menu_handler
-# from gaming.controls import InputControllerThread
 
 # def main():
 #     # 1. Setup Vision (Capture)
-#     config = SystemConfig(
+#     print(">>> Initializing Vision System...")
+#     capture_config = SystemConfig(
 #         device_index=0,
 #         target_fps=30,
 #         target_size=(1000, 1000)
 #     )
-#     capture_manager = CaptureManager(config)
+#     capture_manager = CaptureManager(capture_config)
 #     capture_manager.start_system()
 
-#     # 2. Setup Brain (VLM)
+#     # 2. Setup Controls (Input)
+#     print(">>> Initializing Input Controller...")
+#     controller = InputControllerThread()
+#     controller.start()
+
+#     # 3. Setup Brain (VLM)
+#     print(">>> Loading VLM...")
 #     model_init_kwargs = {
 #         "gpu_memory_utilization": 0.93, 
 #         "max_model_len": 8000, 
@@ -31,42 +43,36 @@
 #     llm = JohnVLLM(model_config).load_model(model_config)
 
 #     try:
-#         #init and start controller
-#         # controller = InputControllerThread()
-#         # controller.start()
-#         # 3. Capture a real frame
-#         # We grab a small window of frames and take the latest one
+#         print(">>> System Ready. Capturing frame...")
+        
+#         # 4. Capture Pipeline
 #         capture_manager.start_capture()
-#         import time; time.sleep(0.2) 
+#         time.sleep(0.2) # Allow buffer to fill slightly
 #         raw_frames = capture_manager.stop_capture()
         
 #         if not raw_frames:
-#             print("Failed to capture frames.")
+#             print("!!! Failed to capture frames.")
 #             return
 
-#         # Post-process (resize/letterbox) and convert to PIL for VLM
+#         # Process Frame (Resize + BGR->RGB)
 #         processed_frames = capture_manager.post_process_frames([raw_frames[-1]])
-#         # CV2 (BGR) to PIL (RGB)
 #         rgb_frame = cv2.cvtColor(processed_frames[0], cv2.COLOR_BGR2RGB)
 #         pil_image = Image.fromarray(rgb_frame)
 
-#         # 4. Run Menu Handler
-#         target = main_menu_handler(llm, [pil_image])
-#         print
-#         # controller.execute_action({
-#         #                     "type": "key_press",
-#         #                     "details": {"key": key_action, "hold_time": 0.05}
-#         #                 })
+#         # 5. Execute Handler
+#         print(">>> Running Main Menu Handler...")
+#         main_menu_handler(llm, [pil_image], controller)
 
+#     except KeyboardInterrupt:
+#         print("\nStopping...")
 #     finally:
+#         # Cleanup
 #         capture_manager.stop_system()
+#         controller.stop()
+#         print(">>> System Shutdown.")
 
 # if __name__ == "__main__":
 #     main()
-
-
-
-
 
 
 
@@ -77,185 +83,59 @@ from PIL import Image
 # Interfaces
 from interfaces.vllm_interface import JohnVLLM
 from interfaces.base import BaseModelConfig
-from gaming.controls import InputControllerThread  # Actual controller import
+from gaming.controls import InputControllerThread
 
 # Local Modules
 from gaming.game_capture import CaptureManager, SystemConfig
 from gaming.main_menu_handler import main_menu_handler
+from gaming.navigation_utils import ensure_menu_selection
 
 def main():
-    # 1. Setup Vision (Capture)
-    print(">>> Initializing Vision System...")
-    capture_config = SystemConfig(
-        device_index=0,
-        target_fps=30,
-        target_size=(1000, 1000)
-    )
+    # 1. Setup Systems
+    capture_config = SystemConfig(target_fps=30, target_size=(1000, 1000))
     capture_manager = CaptureManager(capture_config)
     capture_manager.start_system()
 
-    # 2. Setup Controls (Input)
-    print(">>> Initializing Input Controller...")
     controller = InputControllerThread()
     controller.start()
 
-    # 3. Setup Brain (VLM)
-    print(">>> Loading VLM...")
-    model_init_kwargs = {
-        "gpu_memory_utilization": 0.93, 
-        "max_model_len": 8000, 
-        "trust_remote_code": True
-    }
+    model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True}
     model_config = BaseModelConfig(
         model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", 
         is_vision_model=True, 
-        uses_special_chat_template=False, 
         model_init_kwargs=model_init_kwargs
     )
     llm = JohnVLLM(model_config).load_model(model_config)
 
     try:
-        print(">>> System Ready. Capturing frame...")
+        print(">>> System Ready.")
         
-        # 4. Capture Pipeline
+        # --- CRITICAL STEP: Wake up the menu ---
+        # Before we look, we wiggle the controls to ensure a cursor is visible.
+        ensure_menu_selection(controller)
+        
+        # Give game a split second to render the cursor highlight
+        time.sleep(0.2) 
+
+        # 2. Capture Frame
         capture_manager.start_capture()
-        time.sleep(0.2) # Allow buffer to fill slightly
+        time.sleep(0.1) # Short grab
         raw_frames = capture_manager.stop_capture()
         
-        if not raw_frames:
-            print("!!! Failed to capture frames.")
-            return
+        if raw_frames:
+            processed = capture_manager.post_process_frames([raw_frames[-1]])
+            rgb_frame = cv2.cvtColor(processed[0], cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_frame)
 
-        # Process Frame (Resize + BGR->RGB)
-        processed_frames = capture_manager.post_process_frames([raw_frames[-1]])
-        rgb_frame = cv2.cvtColor(processed_frames[0], cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(rgb_frame)
+            # 3. Run Handler
+            main_menu_handler(llm, [pil_image], controller)
 
-        # 5. Execute Handler
-        print(">>> Running Main Menu Handler...")
-        main_menu_handler(llm, [pil_image], controller)
-
-    except KeyboardInterrupt:
-        print("\nStopping...")
     finally:
-        # Cleanup
         capture_manager.stop_system()
         controller.stop()
-        print(">>> System Shutdown.")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-# from interfaces.vllm_interface import JohnVLLM
-# from interfaces.base import BaseModelConfig
-# import json
-
-# def dummy_keyboard(action, action_repeat):
-#     return f"{action} {action_repeat} times"
-
-# def dummy_controller(cur_action_index, next_action_index, layout):
-#     index_diff = cur_action_index - next_action_index
-#     repeat_action_times = abs(index_diff)
-
-#     if repeat_action_times == 0:
-#         return dummy_keyboard("interact", 1)
-#     elif layout == "horizontal":
-#         action_direction = "move_left" if index_diff > 0 else "move_right"
-#         return dummy_keyboard(action_direction, repeat_action_times)
-#     elif layout == "vertical":
-#         action_direction = "move_up" if index_diff > 0 else "move_down"        
-#         return dummy_keyboard(action_direction, repeat_action_times)
-
-# ass_p = "{\n"
-# def analyze_game_info(prompt, images, schema):
-    
-#     guided_json_config = {
-#         "max_tokens": 1028,
-#         "temperature": 0.2,
-#         # "enable_thinking": False
-#         "skip_special_tokens": False,
-#         "guided_decoding": {
-#             "json": schema  # The key 'json' specifies the type
-#         }
-#     }
-
-#     resp = llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
-#     print('@'*100, '\n',resp)#  '\n-----\n', next_action)
-#     game_info = json.loads(resp)
-#     return game_info
-
-# def action_in_options(prompt, images, options):
-#     act_regex = "|".join(options)
-#     #action specific generation configuration
-#     guided_json_config = {
-#         "max_tokens": 1028,
-#         "temperature": 0.2,
-#         # "enable_thinking": False
-#         "skip_special_tokens": False,
-#         "guided_decoding": {
-#             "regex": act_regex  # The key 'json' specifies the type
-#         }
-#     }
-
-#     return llm.dialogue_generator(prompt=prompt, assistant_prompt=ass_p, images=images, generation_config=guided_json_config, add_generation_prompt=False, continue_final_message=True)
-    
-# model_init_kwargs = {"gpu_memory_utilization": 0.93, "max_model_len": 8000, "trust_remote_code": True,
-#     }
-# model_config = BaseModelConfig(model_path_or_id="Qwen/Qwen3-VL-8B-Instruct-FP8", is_vision_model=True, uses_special_chat_template=False, model_init_kwargs=model_init_kwargs)
-# llm = JohnVLLM(model_config).load_model(model_config)
-
-
-# def movement_handler():
-#     json_schema = Movement.model_json_schema()
-#     print(json_schema)
-
-#     #analyze game screenshot
-#     images = [Image.open("debug_frames/stitched_panorama.png")]#[Image.open("debug_frames/Memes-02-08-7_1.png")]
-#     anal_prompt = "You are a Gaming AI who is currently playing a video game. Analyze the current state of the game. Provide a JSON of your observations (only the ones relevant to playing the game). For objects and characters, include bounding boxes."
-#     # anal_prompt = "You are a Gaming AI who is currently playing a video game. Find the player character(s) and estimate their displacement. Provide a JSON of the displacement."
-#     game_info = analyze_game_info(anal_prompt, images, json_schema)
-#     print(game_info)
-#     # action_options = game_info["player_choices"]
-    
-#     # if action_options:
-#     #     # cur_selection_index = menu_options.index(selected_option)
-#     #     cur_selection_index = action_options.index(game_info["selected_choice"])
-#     #     act_prompt = f"You are a Gaming AI who is currently playing a video game. Analyze the current state of the game.\nAvailable options:{action_options}\n\n Choose a single action based on the available options."
-#     #     resp_act = action_in_options(act_prompt, images, action_options)
-#     #     print("---"*100, '\n', resp_act)
-#     #     next_action = resp_act
-#     #     next_action_index = action_options.index(next_action)
-#     #     menu_layout = game_info["menu_layout"]
-#     #     print(dummy_controller(cur_selection_index, next_action_index, layout='vertical'))
-#     # else:
-#     #     cur_selection_index, next_action_index = 0, 0
-#     #     menu_layout = None
-#     #     print(dummy_controller(cur_selection_index, next_action_index, menu_layout))
-        
-
-
-# # main_menu_handler()
-# # dialogue_handler()
-# movement_handler()
-
-
-
-
-
-
-
-
-
-
 
 
 
