@@ -23,6 +23,8 @@ def analyze_game_info(llm, prompt, images, schema):
         add_generation_prompt=False, 
         continue_final_message=True
     )
+    print(f">>> DEBUG STATE {resp}\n\n\n--------")
+
     return json.loads(resp)
 
 def action_in_options(llm, prompt, images, options):

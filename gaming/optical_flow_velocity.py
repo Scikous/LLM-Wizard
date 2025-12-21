@@ -14,10 +14,6 @@ class MultiAnchorOdometry:
         self.player_bbox = None       # (x, y, w, h)
         
         # --- Optical Flow (Background) ---
-        # self.lk_params = dict(winSize=(21, 21), maxLevel=3,
-        #                       criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
-        # self.feature_params = dict(maxCorners=200, qualityLevel=0.05, minDistance=7, blockSize=7)
-        
         self.lk_params = dict(winSize=(31, 31), maxLevel=4,
                               criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
         self.feature_params = dict(maxCorners=300, qualityLevel=0.05, minDistance=20, blockSize=7)

@@ -74,7 +74,6 @@ def apply_chat_template(
         return_tensors="pt",
         # enable_thinking=False
     )
-
     return templated_prompt, messages
 
 
