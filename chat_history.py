@@ -1,56 +1,8 @@
-# # Sagex/conversation.py
-# from typing import List, Dict, Optional, Union, Any
-
-# class Conversation:
-#     def __init__(self, system_instructions: str = ""):
-#         self.messages: List[Dict[str, Any]] = []
-#         if system_instructions:
-#             self.messages.append({"role": "system", "content": system_instructions})
-
-#     def add_custom_message(self, message):
-#         self.messages.append(message)
-
-#     def add_user_message(self, text: str, images: Optional[List] = None, videos: Optional[List] = None):
-#         """
-#         Standard helper for the most common case: [Images -> Videos -> Text].
-#         """
-#         # If simple text only, keep it simple
-#         if not images and not videos:
-#             self.messages.append({"role": "user", "content": text})
-#             return
-
-#         # Build content list
-#         content = []
-#         if images:
-#             # We assume simple placeholders for the 'Basic' case
-#             content.extend([{"type": "image", "image": img} for img in images])
-#         if videos:
-#             content.extend([{"type": "video", "video": vid} for vid in videos])
-        
-#         content.append({"type": "text", "text": text})
-        
-#         self.messages.append({"role": "user", "content": content})
-
-#     def add_assistant_message(self, text: str):
-#         self.messages.append({"role": "assistant", "content": text})
-
-#     def get_messages(self) -> List[Dict[str, Any]]:
-#         """Returns the list of messages."""
-#         return self.messages
-
-#     def clear(self, keep_system_instructions: bool = True):
-#         # Logic to reset but keep system prompt if desired
-#         if keep_system_instructions and self.messages and self.messages[0]['role'] == 'system':
-#             self.messages = self.messages[0]
-#         else:
-#             self.messages = []
-
-
 # Sagex/chat_history.py
 from typing import List, Dict, Optional, Any
 
 class ChatHistory:
-    def __init__(self, system_instructions: str = "", max_messages: Optional[int] = None):
+    def __init__(self, system_instructions: str = "", max_messages: Optional[int] = 2):
         """
         Args:
             system_instructions: The system prompt.
